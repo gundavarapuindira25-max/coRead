@@ -101,7 +101,7 @@ npm install
 # Configure environment
 cp .env.example .env
 # Edit .env:
-#   VITE_API_URL=       (leave empty for local proxy to work)
+#   VITE_API_URL=      
 
 # Run dev server
 npm run dev
