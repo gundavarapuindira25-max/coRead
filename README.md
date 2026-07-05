@@ -1,7 +1,7 @@
 # CoRead — Collaborative Book Club App
 
 React + FastAPI + PostgreSQL (Supabase) + Redis (Upstash) + Google OAuth 2.0
-Deployed on Render (both frontend and backend, both free).
+Deployed on Render (both frontend and backend).
 
 ---
 
