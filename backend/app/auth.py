@@ -1,7 +1,7 @@
 import hashlib
 import hmac
 import uuid
-from fastapi import Cookie, HTTPException, status
+from fastapi import Cookie, HTTPException, status, Request
 from app.redis_client import get_redis
 from app.config import settings
 
@@ -10,13 +10,11 @@ _USER_SESSIONS_PREFIX = "user_sessions:"
 
 
 def _sign_session_id(raw_id: str) -> str:
-    """Return 'raw_id.hmac' so forged or tampered tokens are rejected before Redis lookup."""
     mac = hmac.new(settings.secret_key.encode(), raw_id.encode(), hashlib.sha256).hexdigest()
     return f"{raw_id}.{mac}"
 
 
 def _verify_session_token(token: str) -> str | None:
-    """Validate the HMAC signature and return the raw session ID, or None if invalid."""
     try:
         raw_id, provided_mac = token.rsplit(".", 1)
     except ValueError:
@@ -31,7 +29,7 @@ async def create_session(user_id: str, email: str, name: str, avatar_url: str | 
     redis = await get_redis()
     raw_id = str(uuid.uuid4())
 
-    # Fix 11: Invalidate all previous sessions for this user before creating a new one
+    # Invalidate all previous sessions for this user
     user_sessions_key = f"{_USER_SESSIONS_PREFIX}{user_id}"
     old_sessions = await redis.smembers(user_sessions_key)
     if old_sessions:
@@ -41,7 +39,6 @@ async def create_session(user_id: str, email: str, name: str, avatar_url: str | 
         pipeline.delete(user_sessions_key)
         await pipeline.execute()
 
-    # Store session data
     await redis.hset(
         f"session:{raw_id}",
         mapping={
@@ -52,12 +49,9 @@ async def create_session(user_id: str, email: str, name: str, avatar_url: str | 
         },
     )
     await redis.expire(f"session:{raw_id}", SESSION_TTL)
-
-    # Track this session under the user so we can invalidate it later
     await redis.sadd(user_sessions_key, raw_id)
     await redis.expire(user_sessions_key, SESSION_TTL)
 
-    # Fix 10: Return a signed token instead of a bare UUID
     return _sign_session_id(raw_id)
 
 
@@ -75,7 +69,6 @@ async def delete_session(session_token: str) -> None:
 
 
 async def get_session_data(session_token: str) -> dict | None:
-    # Fix 10: Verify HMAC before touching Redis
     raw_id = _verify_session_token(session_token)
     if not raw_id:
         return None
@@ -86,10 +79,20 @@ async def get_session_data(session_token: str) -> dict | None:
     return data
 
 
-async def get_current_user(coread_session: str | None = Cookie(default=None)) -> dict:
-    if not coread_session:
+async def get_current_user(
+    request: Request,
+    coread_session: str | None = Cookie(default=None),
+) -> dict:
+    # Support both cookie (same-origin) and Authorization header (cross-origin)
+    token = coread_session
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+
+    if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-    data = await get_session_data(coread_session)
+    data = await get_session_data(token)
     if not data:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
     return data

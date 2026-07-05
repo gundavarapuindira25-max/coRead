@@ -1,6 +1,6 @@
 import secrets
 import httpx
-from fastapi import APIRouter, Depends, Response, Request, HTTPException
+from fastapi import APIRouter, Depends, Response, Request, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -18,12 +18,10 @@ GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 SCOPES = "openid email profile"
 
-_OAUTH_STATE_COOKIE = "coread_oauth_state"
-
 
 @router.get("/google")
-async def google_login(response: Response):
-    # Fix 2: Generate a random state token to prevent OAuth CSRF
+async def google_login():
+    # State is embedded in the redirect — no cookie needed cross-origin
     state = secrets.token_urlsafe(32)
     params = (
         f"?client_id={settings.google_client_id}"
@@ -34,17 +32,7 @@ async def google_login(response: Response):
         f"&prompt=select_account"
         f"&state={state}"
     )
-    redirect = RedirectResponse(GOOGLE_AUTH_URL + params)
-    # Store state in a short-lived, httponly cookie for validation in the callback
-    redirect.set_cookie(
-        key=_OAUTH_STATE_COOKIE,
-        value=state,
-        httponly=True,
-        samesite="lax",
-        secure=(settings.environment == "production"),
-        max_age=600,  # 10 minutes — enough to complete the OAuth flow
-    )
-    return redirect
+    return RedirectResponse(GOOGLE_AUTH_URL + params)
 
 
 @router.get("/google/callback")
@@ -55,13 +43,7 @@ async def google_callback(
     response: Response,
     db: AsyncSession = Depends(get_db),
 ):
-    # Fix 2: Validate state to prevent OAuth CSRF
-    expected_state = request.cookies.get(_OAUTH_STATE_COOKIE)
-    if not expected_state or not secrets.compare_digest(expected_state, state):
-        raise HTTPException(status_code=400, detail="Invalid OAuth state — possible CSRF attempt")
-
     async with httpx.AsyncClient() as client:
-        # Exchange code for tokens
         token_resp = await client.post(
             GOOGLE_TOKEN_URL,
             data={
@@ -75,7 +57,6 @@ async def google_callback(
         token_resp.raise_for_status()
         tokens = token_resp.json()
 
-        # Fetch user info
         user_resp = await client.get(
             GOOGLE_USERINFO_URL,
             headers={"Authorization": f"Bearer {tokens['access_token']}"},
@@ -87,7 +68,6 @@ async def google_callback(
     name = info.get("name", email.split("@")[0])
     avatar_url = info.get("picture")
 
-    # Upsert user
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
     if user is None:
@@ -102,18 +82,9 @@ async def google_callback(
 
     session_id = await create_session(user.id, user.email, user.name, user.avatar_url)
 
-    redirect = RedirectResponse(url=settings.frontend_url)
-    redirect.set_cookie(
-        key="coread_session",
-        value=session_id,
-        httponly=True,
-        samesite="lax",
-        secure=(settings.environment == "production"),
-        max_age=60 * 60 * 24 * 7,
-    )
-    # Clear the OAuth state cookie now that it has been validated
-    redirect.delete_cookie(_OAUTH_STATE_COOKIE)
-    return redirect
+    # Cross-origin: pass token in URL so frontend can store it in localStorage
+    redirect_url = f"{settings.frontend_url}?session={session_id}"
+    return RedirectResponse(url=redirect_url)
 
 
 @router.get("/me", response_model=UserOut)
@@ -132,8 +103,13 @@ async def logout(
     response: Response,
     current_user: dict = Depends(get_current_user),
 ):
-    session_id = request.cookies.get("coread_session")
-    if session_id:
-        await delete_session(session_id)
+    # Support both cookie and Authorization header
+    session_token = request.cookies.get("coread_session")
+    if not session_token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            session_token = auth_header[7:]
+    if session_token:
+        await delete_session(session_token)
     response.delete_cookie("coread_session")
     return {"ok": True}
