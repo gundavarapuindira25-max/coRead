@@ -1,18 +1,16 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
+from app.limiter import limiter
 from app.models import Message, ClubMembership
 from app.schemas import MessageCreate, MessageOut
 from app.auth import get_current_user
 
 router = APIRouter(prefix="/api/clubs", tags=["messages"])
-limiter = Limiter(key_func=get_remote_address)
 
 
 async def _require_member(club_id: str, user_id: str, db: AsyncSession):
