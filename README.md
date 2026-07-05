@@ -144,19 +144,6 @@ Add `https://coread-api.onrender.com/api/auth/google/callback` to your Google OA
 
 ---
 
-## Free Tier Limits
-
-| Service | Limit | Notes |
-|---|---|---|
-| Render Web Service (backend) | 750 hrs/month | Spins down after 15 min idle — first request may be slow |
-| Render Static Site (frontend) | Unlimited | Never spins down |
-| Supabase | 500 MB DB, 2 projects | More than enough |
-| Upstash Redis | 10,000 commands/day | Session reads/writes count |
-| Google OAuth | Free | No limits |
-| Google Books API | 1,000 req/day | ~100 searches/day |
-
----
-
 ## API Reference
 
 | Method | Path | Description |
