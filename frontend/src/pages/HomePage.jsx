@@ -40,6 +40,26 @@ export default function HomePage() {
     setShowCreate(false);
   };
 
+  const handleLeave = async (clubId) => {
+    try {
+      await client.delete(`/api/clubs/${clubId}/leave`);
+      setClubs((prev) => prev.filter((c) => c.id !== clubId));
+      if (activeClubId === clubId) setActiveClubId(null);
+    } catch (err) {
+      alert(err.response?.data?.detail || "Could not leave club.");
+    }
+  };
+
+  const handleDelete = async (clubId) => {
+    try {
+      await client.delete(`/api/clubs/${clubId}`);
+      setClubs((prev) => prev.filter((c) => c.id !== clubId));
+      if (activeClubId === clubId) setActiveClubId(null);
+    } catch (err) {
+      alert(err.response?.data?.detail || "Could not delete club.");
+    }
+  };
+
   const activeClub = clubs.find((c) => c.id === activeClubId);
 
   return (
@@ -87,8 +107,11 @@ export default function HomePage() {
         <Sidebar
           clubs={clubs}
           activeId={activeClubId}
+          currentUserId={user?.id}
           onSelect={(id) => { setActiveClubId(id); setActiveTab("discussion"); }}
           onCreateClick={() => setShowCreate(true)}
+          onLeave={handleLeave}
+          onDelete={handleDelete}
         />
 
         {/* Main content */}

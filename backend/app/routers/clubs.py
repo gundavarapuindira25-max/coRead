@@ -137,3 +137,58 @@ async def join_club(
     db.add(membership)
     await db.commit()
     return {"ok": True}
+
+
+@router.delete("/{club_id}/leave", status_code=status.HTTP_200_OK)
+async def leave_club(
+    club_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    mem_result = await db.execute(
+        select(ClubMembership).where(
+            ClubMembership.club_id == club_id,
+            ClubMembership.user_id == current_user["user_id"],
+        )
+    )
+    membership = mem_result.scalar_one_or_none()
+    if not membership:
+        raise HTTPException(status_code=404, detail="Not a member")
+
+    # Prevent leaving if you're the only admin
+    if membership.is_admin:
+        admin_count_result = await db.execute(
+            select(func.count()).where(
+                ClubMembership.club_id == club_id,
+                ClubMembership.is_admin == True,
+            )
+        )
+        if admin_count_result.scalar_one() == 1:
+            raise HTTPException(
+                status_code=400,
+                detail="You're the only admin. Transfer admin to another member or delete the club.",
+            )
+
+    await db.delete(membership)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.delete("/{club_id}", status_code=status.HTTP_200_OK)
+async def delete_club(
+    club_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    club_result = await db.execute(select(Club).where(Club.id == club_id))
+    club = club_result.scalar_one_or_none()
+    if not club:
+        raise HTTPException(status_code=404, detail="Club not found")
+
+    # Only the original creator can delete
+    if club.created_by != current_user["user_id"]:
+        raise HTTPException(status_code=403, detail="Only the club creator can delete it")
+
+    await db.delete(club)
+    await db.commit()
+    return {"ok": True}
