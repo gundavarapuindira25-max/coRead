@@ -1,0 +1,46 @@
+services:
+  # ── Backend (FastAPI) ────────────────────────────────────────────
+  - type: web
+    name: coread-api
+    runtime: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+      - key: GOOGLE_BOOKS_API_KEY
+        sync: false
+      - key: ENVIRONMENT
+        value: production
+
+  # ── Frontend (React/Vite static site) ───────────────────────────
+  - type: web
+    name: coread-app
+    runtime: static
+    region: oregon
+    plan: free
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        sync: false
