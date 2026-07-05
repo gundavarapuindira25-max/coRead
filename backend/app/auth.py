@@ -83,7 +83,7 @@ async def get_current_user(
     request: Request,
     coread_session: str | None = Cookie(default=None),
 ) -> dict:
-    # Support both cookie (same-origin) and Authorization header (cross-origin)
+    # Support both cookie and Authorization header (fallback)
     token = coread_session
     if not token:
         auth_header = request.headers.get("Authorization", "")

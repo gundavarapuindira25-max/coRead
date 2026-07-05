@@ -1,6 +1,6 @@
 import secrets
 import httpx
-from fastapi import APIRouter, Depends, Response, Request, HTTPException, Query
+from fastapi import APIRouter, Depends, Response, Request, HTTPException
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -18,10 +18,31 @@ GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 SCOPES = "openid email profile"
 
+_IS_PROD = True  # always True — both frontend and backend are on HTTPS
+
+
+def _set_session_cookie(response: RedirectResponse | Response, value: str, delete: bool = False):
+    """Set or delete the session cookie with SameSite=None; Secure for cross-origin support."""
+    if delete:
+        response.delete_cookie(
+            key="coread_session",
+            samesite="none",
+            secure=True,
+            httponly=True,
+        )
+    else:
+        response.set_cookie(
+            key="coread_session",
+            value=value,
+            httponly=True,
+            samesite="none",   # required for cross-origin cookie
+            secure=True,       # required when samesite=none
+            max_age=60 * 60 * 24 * 7,
+        )
+
 
 @router.get("/google")
 async def google_login():
-    # State is embedded in the redirect — no cookie needed cross-origin
     state = secrets.token_urlsafe(32)
     params = (
         f"?client_id={settings.google_client_id}"
@@ -82,9 +103,9 @@ async def google_callback(
 
     session_id = await create_session(user.id, user.email, user.name, user.avatar_url)
 
-    # Cross-origin: pass token in URL so frontend can store it in localStorage
-    redirect_url = f"{settings.frontend_url}?session={session_id}"
-    return RedirectResponse(url=redirect_url)
+    redirect = RedirectResponse(url=settings.frontend_url)
+    _set_session_cookie(redirect, session_id)
+    return redirect
 
 
 @router.get("/me", response_model=UserOut)
@@ -103,7 +124,6 @@ async def logout(
     response: Response,
     current_user: dict = Depends(get_current_user),
 ):
-    # Support both cookie and Authorization header
     session_token = request.cookies.get("coread_session")
     if not session_token:
         auth_header = request.headers.get("Authorization", "")
@@ -111,5 +131,5 @@ async def logout(
             session_token = auth_header[7:]
     if session_token:
         await delete_session(session_token)
-    response.delete_cookie("coread_session")
+    _set_session_cookie(response, "", delete=True)
     return {"ok": True}
